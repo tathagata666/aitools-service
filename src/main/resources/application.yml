@@ -29,6 +29,9 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    baseline-version: 0          # ← add this
+    table: flyway_schema_history_aitools  # ← add this — separate history table
+
 
   security:
     oauth2:
