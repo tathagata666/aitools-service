@@ -1,7 +1,11 @@
 package com.costroom.aitoolsservice.controller;
 
 import com.costroom.aitoolsservice.entity.AiUsageSnapshot;
+import com.costroom.aitoolsservice.exception.OrgResolutionException;
 import com.costroom.aitoolsservice.repository.AiUsageSnapshotRepository;
+import com.costroom.aitoolsservice.repository.UserIdentityRepository;
+import com.costroom.aitoolsservice.repository.UserOrgLinkRepository;
+import com.costroom.aitoolsservice.security.JwtHelper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -13,31 +17,36 @@ import java.util.UUID;
 /**
  * Read-only API for querying stored usage snapshots.
  *
- * Used by:
- *   - The React frontend (via customer JWT) to show basic usage history
- *   - The aianalytics-service (also via customer JWT forwarding) to pull raw data
- *
  * Routes:
- *   GET /api/snapshots                         – all snapshots for my org
- *   GET /api/snapshots?provider=openai         – filter by provider
- *   GET /api/snapshots?provider=openai&from=&to= – time-windowed filter
+ *   GET /api/snapshots                           – all snapshots for my org
+ *   GET /api/snapshots?provider=openai            – filter by provider
+ *   GET /api/snapshots?provider=openai&from=&to=  – time-windowed filter
  */
 @RestController
 @RequestMapping("/api/snapshots")
 public class SnapshotController {
 
     private final AiUsageSnapshotRepository snapshotRepository;
+    private final JwtHelper jwtHelper;
+    private final UserIdentityRepository userIdentityRepository;
+    private final UserOrgLinkRepository userOrgLinkRepository;
 
-    public SnapshotController(AiUsageSnapshotRepository snapshotRepository) {
+    public SnapshotController(AiUsageSnapshotRepository snapshotRepository,
+                               JwtHelper jwtHelper,
+                               UserIdentityRepository userIdentityRepository,
+                               UserOrgLinkRepository userOrgLinkRepository) {
         this.snapshotRepository = snapshotRepository;
+        this.jwtHelper = jwtHelper;
+        this.userIdentityRepository = userIdentityRepository;
+        this.userOrgLinkRepository = userOrgLinkRepository;
     }
 
     @GetMapping
     public ResponseEntity<List<AiUsageSnapshot>> getSnapshots(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) String provider,
-            @RequestParam(required = false) Long from,    // Unix epoch seconds
-            @RequestParam(required = false) Long to) {    // Unix epoch seconds
+            @RequestParam(required = false) Long from,
+            @RequestParam(required = false) Long to) {
 
         UUID orgId = resolveOrgId(jwt);
 
@@ -47,7 +56,6 @@ public class SnapshotController {
             results = snapshotRepository.findByOrgIdAndProviderAndBucketStartTimeBetween(
                     orgId, provider.toLowerCase(), from, to);
         } else if (provider != null) {
-            // Default window: last 30 days
             long endEpoch   = java.time.Instant.now().getEpochSecond();
             long startEpoch = endEpoch - (30L * 86400);
             results = snapshotRepository.findByOrgIdAndProviderAndBucketStartTimeBetween(
@@ -60,10 +68,15 @@ public class SnapshotController {
     }
 
     private UUID resolveOrgId(Jwt jwt) {
-        String orgIdClaim = jwt.getClaimAsString("custom:org_id");
-        if (orgIdClaim != null && !orgIdClaim.isBlank()) {
-            return UUID.fromString(orgIdClaim);
-        }
-        return new UUID(0, 0);
+        String cognitoSub = jwtHelper.getSubject(jwt);
+
+        UUID internalUserId = userIdentityRepository.findUserIdByCognitoSub(cognitoSub)
+                .orElseThrow(() -> new OrgResolutionException(
+                        "No internal user found for this identity."));
+
+        return userOrgLinkRepository.findByUserId(internalUserId)
+                .map(link -> link.getOrgId())
+                .orElseThrow(() -> new OrgResolutionException(
+                        "This user is not linked to any organization yet."));
     }
 }

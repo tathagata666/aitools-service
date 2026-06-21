@@ -45,6 +45,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints
                 .requestMatchers("/actuator/health", "/health").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("PLATFORM_ADMIN")
                 // AI tool CRUD: any authenticated customer role
                 .requestMatchers("/api/ai-tools/**").hasAnyRole(
                     "CUSTOMER_ADMIN", "CUSTOMER_REQUESTOR", "CUSTOMER_APPROVER")
