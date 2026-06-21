@@ -2,6 +2,7 @@ package com.costroom.aitoolsservice.controller;
 
 import com.costroom.aitoolsservice.dto.ErrorResponse;
 import com.costroom.aitoolsservice.exception.DuplicateToolException;
+import com.costroom.aitoolsservice.exception.OrgResolutionException;
 import com.costroom.aitoolsservice.exception.ToolNotFoundException;
 import com.costroom.aitoolsservice.exception.UnsupportedProviderException;
 import org.slf4j.Logger;
@@ -59,5 +60,12 @@ public class GlobalExceptionHandler {
         log.error("Unhandled exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponse.of(500, "Internal Server Error", "An unexpected error occurred"));
+    }
+
+    @ExceptionHandler(OrgResolutionException.class)
+    public ResponseEntity<ErrorResponse> handleOrgResolution(OrgResolutionException ex) {
+        log.warn("Org resolution failed: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(409, "Organization Not Resolved", ex.getMessage()));
     }
 }

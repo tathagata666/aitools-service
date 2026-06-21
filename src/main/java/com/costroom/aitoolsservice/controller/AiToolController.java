@@ -3,6 +3,9 @@ package com.costroom.aitoolsservice.controller;
 import com.costroom.aitoolsservice.dto.AiToolResponse;
 import com.costroom.aitoolsservice.dto.CreateAiToolRequest;
 import com.costroom.aitoolsservice.dto.UpdateAiToolRequest;
+import com.costroom.aitoolsservice.exception.OrgResolutionException;
+import com.costroom.aitoolsservice.repository.UserIdentityRepository;
+import com.costroom.aitoolsservice.repository.UserOrgLinkRepository;
 import com.costroom.aitoolsservice.security.JwtHelper;
 import com.costroom.aitoolsservice.service.AiToolService;
 import jakarta.validation.Valid;
@@ -19,7 +22,9 @@ import java.util.UUID;
  * CRUD endpoints for customer AI tool entries.
  *
  * All routes require a valid Cognito JWT with a CUSTOMER_* role.
- * user_id and org_id are resolved from the JWT — never supplied by the client.
+ * user_id stored on ai_tools is the Cognito sub, straight from the JWT.
+ * org_id is resolved server-side via user_identities -> user_org_link,
+ * never trusted from a JWT claim or the request body.
  *
  * Routes:
  *   POST   /api/ai-tools           – register a new AI tool
@@ -34,10 +39,17 @@ public class AiToolController {
 
     private final AiToolService toolService;
     private final JwtHelper jwtHelper;
+    private final UserIdentityRepository userIdentityRepository;
+    private final UserOrgLinkRepository userOrgLinkRepository;
 
-    public AiToolController(AiToolService toolService, JwtHelper jwtHelper) {
+    public AiToolController(AiToolService toolService,
+                             JwtHelper jwtHelper,
+                             UserIdentityRepository userIdentityRepository,
+                             UserOrgLinkRepository userOrgLinkRepository) {
         this.toolService = toolService;
         this.jwtHelper = jwtHelper;
+        this.userIdentityRepository = userIdentityRepository;
+        this.userOrgLinkRepository = userOrgLinkRepository;
     }
 
     @PostMapping
@@ -84,20 +96,31 @@ public class AiToolController {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /** user_id stored on ai_tools rows is the Cognito sub, straight from the JWT. */
     private UUID resolveUserId(Jwt jwt) {
         return UUID.fromString(jwtHelper.getSubject(jwt));
     }
 
     /**
-     * Resolves orgId from the "custom:org_id" Cognito claim (set by org-service at onboarding).
-     * Falls back to zero-UUID so the row is still created; in practice every customer JWT
-     * will carry this claim.
+     * Resolves orgId server-side:
+     *   JWT sub -> user_identities.provider_subject -> user_identities.user_id
+     *           -> user_org_link.user_id -> user_org_link.org_id
+     *
+     * No Cognito custom claim involved. Throws OrgResolutionException
+     * (mapped to 409 by GlobalExceptionHandler) if either hop is missing,
+     * instead of silently falling back to a zero-UUID.
      */
     private UUID resolveOrgId(Jwt jwt) {
-        String orgIdClaim = jwt.getClaimAsString("custom:org_id");
-        if (orgIdClaim != null && !orgIdClaim.isBlank()) {
-            return UUID.fromString(orgIdClaim);
-        }
-        return new UUID(0, 0);
+        String cognitoSub = jwtHelper.getSubject(jwt);
+
+        UUID internalUserId = userIdentityRepository.findUserIdByCognitoSub(cognitoSub)
+                .orElseThrow(() -> new OrgResolutionException(
+                        "No internal user found for this identity. " +
+                        "User may not be fully provisioned in auth-service yet."));
+
+        return userOrgLinkRepository.findByUserId(internalUserId)
+                .map(link -> link.getOrgId())
+                .orElseThrow(() -> new OrgResolutionException(
+                        "This user is not linked to any organization yet."));
     }
 }
