@@ -29,9 +29,8 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
-    baseline-version: 0          # ← add this
-    table: flyway_schema_history_aitools  # ← add this — separate history table
-
+    baseline-version: 0 # ← add this
+    table: flyway_schema_history_aitools # ← add this — separate history table
 
   security:
     oauth2:
@@ -46,8 +45,15 @@ app:
   encryption:
     key: ${ENCRYPTION_KEY:T3kFLvZ3jd0cCHwo86oGr478LCZHpUTo4cX4byAiTkQ=}
   ingestion:
-    # Every 6 hours by default. Override via env var (e.g. 60000 = 1 min for local dev).
-    fixed-rate-ms: ${INGESTION_RATE_MS:21600000}
+    # Every 6 hours by default.
+    # 1 min 60000
+    # 5 min 300000
+    # 10 min 600000
+    # 15 min 900000
+    # 30 min 1800000
+    # 60 min 3600000
+    # 6 hours 21600000
+    fixed-rate-ms: ${INGESTION_RATE_MS:300000}
 
 # Internal service URLs
 org-service:

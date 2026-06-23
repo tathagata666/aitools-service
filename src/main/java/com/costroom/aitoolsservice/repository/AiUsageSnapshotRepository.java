@@ -6,12 +6,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface AiUsageSnapshotRepository extends JpaRepository<AiUsageSnapshot, UUID> {
 
-    /** Idempotency check — skip row if exact duplicate already ingested. */
-    boolean existsByOrgIdAndAiToolIdAndProviderAndSnapshotTypeAndModelIdAndBucketStartTimeAndSourceType(
+    /**
+     * Lookup for upsert — returns the existing row for a given time bucket if one exists.
+     * Used by IngestionScheduler to decide whether to insert or update.
+     */
+    Optional<AiUsageSnapshot> findByOrgIdAndAiToolIdAndProviderAndSnapshotTypeAndModelIdAndBucketStartTimeAndSourceType(
             UUID orgId,
             UUID aiToolId,
             String provider,
